@@ -316,13 +316,18 @@ func (cc *ClusterCollector) Collect(ch chan<- prometheus.Metric) {
 
 		ch <- prometheus.MustNewConstMetric(cc.clusterRAMUsedDesc, prometheus.GaugeValue, float64(detail.Status.UsedRam), cc.systemName, detail.Name)
 		ch <- prometheus.MustNewConstMetric(cc.clusterCoresUsedDesc, prometheus.GaugeValue, float64(detail.Status.UsedCores), cc.systemName, detail.Name)
-
-		// Set cluster status (1=online, 0=offline)
-		statusValue := 0.0
-		if detail.Status.OnlineNodes > 0 {
-			statusValue = 1.0
+		clusterStatus := 0.0
+		if detail.Status.Status == "online" {
+			clusterStatus = 1
+		} else if detail.Status.Status == "maintenance" {
+			clusterStatus = 2
 		}
-		ch <- prometheus.MustNewConstMetric(cc.clusterStatusDesc, prometheus.GaugeValue, float64(statusValue), cc.systemName, detail.Name)
+		// Set cluster status (1=online, 0=offline)
+		//statusValue := 0.0
+		//if detail.Status.OnlineNodes > 0 {
+		//	statusValue = 1.0
+		//}
+		ch <- prometheus.MustNewConstMetric(cc.clusterStatusDesc, prometheus.GaugeValue, float64(clusterStatus), cc.systemName, detail.Name)
 	}
 
 	// cc.clusterStatus.Collect(ch)

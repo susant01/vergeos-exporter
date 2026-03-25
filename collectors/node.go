@@ -31,6 +31,7 @@ type NodeCollector struct {
 
 	// Metrics
 	nodesTotalDesc       *prometheus.Desc
+	nodeStatusDesc       *prometheus.Desc
 	nodeIPMIStatusDesc   *prometheus.Desc
 	nodeCPUUsageDesc     *prometheus.Desc
 	nodeCoreTempDesc     *prometheus.Desc
@@ -54,6 +55,12 @@ func NewNodeCollector(url string, client *http.Client, username, password string
 			"vergeos_nodes_total",
 			"Total number of physical nodes",
 			[]string{"system_name", "cluster"},
+			nil,
+		),
+		nodeStatusDesc: prometheus.NewDesc(
+			"vergeos_node_status",
+			"Verge OS node status(1=online,2=maintenance,0=offline)",
+			[]string{"system_name", "cluster", "node_name"},
 			nil,
 		),
 		nodeIPMIStatusDesc: prometheus.NewDesc(
@@ -123,6 +130,7 @@ func NewNodeCollector(url string, client *http.Client, username, password string
 // Describe implements prometheus.Collector
 func (nc *NodeCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- nc.nodesTotalDesc
+	ch <- nc.nodeStatusDesc
 	ch <- nc.nodeIPMIStatusDesc
 	ch <- nc.nodeCPUUsageDesc
 	ch <- nc.nodeCoreTempDesc
@@ -157,7 +165,6 @@ func (nc *NodeCollector) Collect(ch chan<- prometheus.Metric) {
 		Key   string `json:"key"`
 		Value string `json:"value"`
 	}
-	fmt.Println(resp.Body)
 	if err := json.NewDecoder(resp.Body).Decode(&settings); err != nil {
 		fmt.Printf("Error decoding settings response: %v\n", err)
 		return
@@ -226,6 +233,9 @@ func (nc *NodeCollector) Collect(ch chan<- prometheus.Metric) {
 					RAMUsed       int64     `json:"ram_used"`
 					RAMPct        float64   `json:"ram_pct"`
 				} `json:"stats"`
+				Status struct {
+					Status string `json:"status"`
+				} `json:"status"`
 			} `json:"machine"`
 			VMStatsTotals struct {
 				RunningCores int64 `json:"running_cores"`
@@ -253,9 +263,17 @@ func (nc *NodeCollector) Collect(ch chan<- prometheus.Metric) {
 		if nodeData.Machine.Stats.CoreTemp > 0 {
 			ch <- prometheus.MustNewConstMetric(nc.nodeCoreTempDesc, prometheus.GaugeValue, nodeData.Machine.Stats.CoreTemp, nc.systemName, nodeData.ClusterDisplay, node.Name)
 		}
-
+		var status int
+		if nodeData.Machine.Status.Status == "running" {
+			status = 1
+		} else if nodeData.Machine.Status.Status == "maintenance" {
+			status = 2
+		} else {
+			status = 0
+		}
 		// Set IPMI status with system_name and cluster labels
 
+		ch <- prometheus.MustNewConstMetric(nc.nodeStatusDesc, prometheus.GaugeValue, float64(status), nc.systemName, nodeData.ClusterDisplay, node.Name)
 		ch <- prometheus.MustNewConstMetric(nc.nodeIPMIStatusDesc, prometheus.GaugeValue, ipmiStatus, nc.systemName, nodeData.ClusterDisplay, node.Name)
 		// Set RAM metrics using the Stats field
 		ch <- prometheus.MustNewConstMetric(nc.nodeRAMUsedDesc, prometheus.GaugeValue, float64(nodeData.Machine.Stats.RAMUsed), nc.systemName, nodeData.ClusterDisplay, node.Name)
